@@ -63,7 +63,7 @@ const ProcessingPipeline = () => {
           results[fileName] = exists;
 
           if (exists) {
-            const fileUrl = `${url3}/${projectId}/${fileName}`;
+            const fileUrl = `${url3}/${projectId}/${fileName}?DateTime=${new Date().toISOString()}`;
             console.log("Updating step", key, "to completed");
             updateStepStatus(key, {
               status: "completed",
