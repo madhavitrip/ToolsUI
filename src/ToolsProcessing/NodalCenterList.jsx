@@ -108,15 +108,15 @@ export default function NodalCenterList() {
 
   const catchListFields = [
     "CatchNo", "CollegeCode", "CollegeName", "PaperCode", "CourseName", "SubjectName", "NRQuantity", "ExamDate", "ExamTime",
-    "Transgender", "Male", "Female", "Semester"
+    "Transgender", "Male", "Female", "Semester", "CenterCode", "CenterName"
   ];
-  const requiredCatchListFields = ["CatchNo", "NRQuantity","CollegeCode", "CollegeName"];
+  const requiredCatchListFields = ["CatchNo", "CollegeName", "CenterCode", "CenterName"];
 
   const nodalListFields = [
     "CollegeCode", "CollegeName", "ExamCenterCode", "ExamCenterName",
     "Gender", "NodalCode", "NodalName"
   ];
-  const requiredNodalListFields = ["NodalCode", "CollegeCode","ExamCenterCode"];
+  const requiredNodalListFields = ["NodalCode", "NodalName", "CollegeName", "ExamCenterCode", "ExamCenterName"];
 
   const currentFields = activeTab === "1" ? catchListFields : nodalListFields;
   const currentRequiredFields = activeTab === "1" ? requiredCatchListFields : requiredNodalListFields;
