@@ -41,8 +41,24 @@ const parseEnvLotNumbers = (v) => {
 
 const extractLotFromFilename = (name) => {
   if (!name || typeof name !== 'string') return null;
-  const m = name.match(/_(\d+)\./);
-  return m ? parseInt(m[1], 10) : null;
+
+  // 1) Pattern: _1_v1, _2_v1, BoxBreaking_1_v1.xlsx
+  const m1 = name.match(/_(\d+)_v\d+/i);
+  if (m1) return parseInt(m1[1], 10);
+
+  // 2) Pattern: _lot1_, _lot-1_
+  const m2 = name.match(/_lot[_-]?(\d+)/i);
+  if (m2) return parseInt(m2[1], 10);
+
+  // 3) Pattern: _1.xlsx, _2.xls
+  const m3 = name.match(/_(\d+)\.[^.]+$/);
+  if (m3) return parseInt(m3[1], 10);
+
+  // 4) Fallback pattern for any underscore followed by number
+  const m4 = name.match(/_(\d+)(?:_|\.|$)/);
+  if (m4) return parseInt(m4[1], 10);
+
+  return null;
 };
 
 // Modules that produce reports (fixed set)
@@ -65,6 +81,7 @@ const ReportTemplateManagement = ({
   apiBaseUrl,
   projectId,
   envLotReports = [],
+  availableLots = [],
 }) => {
   const { userMap } = useUserMap();
   const projectName = useStore(state => state.projectName);
@@ -234,18 +251,46 @@ const ReportTemplateManagement = ({
 
   const getLotNumbers = useMemo(() => {
     const lots = new Set();
+
+    // 1. Add lots from availableLots prop
+    (availableLots || []).forEach(l => {
+      const lotNo = typeof l === 'number' ? l : Number(l?.lotNo ?? l?.LotNo ?? l?.lotNumber ?? 0);
+      if (lotNo > 0) lots.add(lotNo);
+    });
+
+    // 2. Add lots from reports for current viewType
     reports.forEach((r) => {
       if (r.type !== viewType) return;
       if (viewType === 'Template') {
         const data = r.templateId ? envLotReportsLookup[Number(r.templateId)] : null;
-        data?.lotNumbers?.forEach(l => lots.add(l));
+        data?.lotNumbers?.forEach(l => { if (l > 0) lots.add(Number(l)); });
       } else {
-        const l = extractLotFromFilename(r.reportName || r.fileName);
-        if (l) lots.add(l);
+        const dbLot = (r.lot != null && Number(r.lot) > 0) ? Number(r.lot) : null;
+        const fnLot = extractLotFromFilename(r.reportName || r.fileName);
+        const lot = dbLot || fnLot;
+        if (lot && lot > 0) lots.add(lot);
       }
     });
+
+    // 3. Fallback: Check all reports regardless of viewType if set is empty
+    if (lots.size === 0) {
+      reports.forEach((r) => {
+        const dbLot = (r.lot != null && Number(r.lot) > 0) ? Number(r.lot) : null;
+        const fnLot = extractLotFromFilename(r.reportName || r.fileName);
+        const lot = dbLot || fnLot;
+        if (lot && lot > 0) lots.add(lot);
+      });
+    }
+
+    // 4. Fallback from envLotReportsLookup if still empty
+    if (lots.size === 0) {
+      Object.values(envLotReportsLookup || {}).forEach(item => {
+        item?.lotNumbers?.forEach(l => { if (l > 0) lots.add(Number(l)); });
+      });
+    }
+
     return [...lots].sort((a, b) => a - b);
-  }, [reports, viewType, envLotReportsLookup]);
+  }, [reports, viewType, envLotReportsLookup, availableLots]);
 
   // ══════════════════════════════════════════════════════════════════════════
   // ACCORDION GROUPS
@@ -270,17 +315,20 @@ const ReportTemplateManagement = ({
         .filter(r => r.type === 'Report')
         .filter(r => {
           const fileName = r.reportName || r.fileName || '';
-          const lotNum = extractLotFromFilename(fileName);
+          const dbLot = (r.lot != null && Number(r.lot) > 0) ? Number(r.lot) : null;
+          const lotNum = dbLot || extractLotFromFilename(fileName);
           if (search && !r.module?.toLowerCase().includes(search) && !r.reportName?.toLowerCase().includes(search)) return false;
           if (selectedModule !== 'ALL' && r.module !== selectedModule) return false;
           if (selectedLot !== 'ALL' && Number(lotNum) !== Number(selectedLot)) return false;
           return true;
         });
 
-      // Group: for box breaking use "module||lot", for others use "module"
+      // Group: for box breaking use "module||lot", for others use "module||lot" when lot available
       const groupMap = new Map();
       filtered.forEach(r => {
-        const lotNum = extractLotFromFilename(r.reportName || r.fileName || '');
+        // Prefer DB lot value, fall back to extracting from filename
+        const dbLot = (r.lot != null && Number(r.lot) > 0) ? Number(r.lot) : null;
+        const lotNum = dbLot || extractLotFromFilename(r.reportName || r.fileName || '');
         const groupKey = lotNum
           ? `${r.module}||lot-${lotNum}`
           : `${r.module}`;
@@ -525,7 +573,9 @@ const ReportTemplateManagement = ({
     const version = latestRow?.versions?.[0];
     if (!version?.fileUrl) { message.error('Download URL not available.'); return; }
     const link = document.createElement('a');
-    link.href = version.fileUrl; link.download = latestRow.reportName || 'report'; link.target = '_blank';
+    let dn = latestRow.reportName || 'report';
+    if (!dn.toLowerCase().endsWith('.xlsx')) dn += '.xlsx';
+    link.href = version.fileUrl; link.download = dn; link.target = '_blank';
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
     message.success('Download started.');
   };
@@ -534,7 +584,9 @@ const ReportTemplateManagement = ({
   const handleDownloadReportVersion = (versionObj, reportName) => {
     if (!versionObj?.fileUrl) { message.error('Download URL not available for this version.'); return; }
     const link = document.createElement('a');
-    link.href = versionObj.fileUrl; link.download = reportName || 'report'; link.target = '_blank';
+    let dn = reportName || 'report';
+    if (!dn.toLowerCase().endsWith('.xlsx')) dn += '.xlsx';
+    link.href = versionObj.fileUrl; link.download = dn; link.target = '_blank';
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
     message.success('Download started.');
   };

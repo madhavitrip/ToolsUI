@@ -81,13 +81,23 @@ export default function Navbar({ onToggleSidebar, onLogout, searchQuery, onSearc
     if (token) fetchData();
   }, [allProjects.length, allGroups.length, token]);
 
-  // Fetch lots when projectId changes
+  // Fetch lots when projectId changes or on refresh event
   useEffect(() => {
     if (projectId && token) {
       fetchLots();
     } else {
       setLots([]);
     }
+  }, [projectId, token]);
+
+  useEffect(() => {
+    const handleRefreshLots = () => {
+      if (projectId && token) {
+        fetchLots();
+      }
+    };
+    window.addEventListener("refreshLots", handleRefreshLots);
+    return () => window.removeEventListener("refreshLots", handleRefreshLots);
   }, [projectId, token]);
 
   // Close search dropdown when clicking outside
@@ -116,14 +126,14 @@ export default function Navbar({ onToggleSidebar, onLogout, searchQuery, onSearc
       });
       
       if (response.data && Array.isArray(response.data)) {
-        setLots(response.data);
+        const validLots = response.data.filter(lot => lot.lotNo > 0);
+        setLots(validLots);
       } else {
         setLots([]);
       }
     } catch (error) {
       console.error("Failed to fetch lots:", error);
       setLots([]);
-      showToast("Failed to load lots", "error");
     } finally {
       setLoadingLots(false);
     }
@@ -239,7 +249,13 @@ export default function Navbar({ onToggleSidebar, onLogout, searchQuery, onSearc
         {projectId && (
           <div className="relative" ref={lotFilterRef}>
             <button
-              onClick={() => setLotFilterOpen(!lotFilterOpen)}
+              onClick={() => {
+                const nextOpen = !lotFilterOpen;
+                setLotFilterOpen(nextOpen);
+                if (nextOpen) {
+                  fetchLots();
+                }
+              }}
               className="flex items-center gap-2 px-3 py-2.5 bg-white border border-slate-200 rounded-xl hover:border-blue-300 hover:bg-blue-50 transition-all text-slate-700 text-base font-medium"
             >
               <Package size={16} className="text-blue-600" />

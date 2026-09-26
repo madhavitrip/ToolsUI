@@ -1304,10 +1304,20 @@ const RPTFiles = () => {
   );
 
   const sourceOptionGroups = useMemo(() => {
-    const options = Array.isArray(mappingOptions) ? [...mappingOptions] : [];
-    console.log("[sourceOptionGroups] mappingOptions length:", mappingOptions?.length, "sample:", mappingOptions?.[0]);
-    options.push({ value: "calc:SRNO", label: "Auto SR No.", raw: "SRNO" });
-    return options;
+    const rawOptions = Array.isArray(mappingOptions) ? mappingOptions : [];
+    const uniqueOptions = [];
+    const seen = new Set();
+
+    for (const opt of rawOptions) {
+      if (opt.value === "calc:SRNO") continue; // Skip backend calc:SRNO to use frontend's label
+      if (!seen.has(opt.value)) {
+        seen.add(opt.value);
+        uniqueOptions.push(opt);
+      }
+    }
+
+    uniqueOptions.push({ value: "calc:SRNO", label: "Auto SR No.", raw: "SRNO" });
+    return uniqueOptions;
   }, [mappingOptions]);
 
   const flatSourceOptions = useMemo(() => {

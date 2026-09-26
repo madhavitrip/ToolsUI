@@ -494,11 +494,8 @@ const ProjectTemplates = () => {
   const showSidePanel = Boolean(addModalOpen || importModalOpen);
 
   const filteredGroupOptions = useMemo(() => {
-    if (importAvailability.loading) return groupOptions;
-    return groupOptions.filter(
-      (group) => (importAvailability.groupTypes[group.value] || []).length > 0,
-    );
-  }, [groupOptions, importAvailability]);
+    return groupOptions;
+  }, [groupOptions]);
 
   const filteredProjectOptions = useMemo(() => {
     if (importAvailability.loading) return projectOptions;
@@ -509,25 +506,18 @@ const ProjectTemplates = () => {
   }, [projectOptions, importAvailability]);
 
   const standardTypeOptions = useMemo(() => {
-    if (importAvailability.loading) return typeOptions;
-    return typeOptions.filter((type) =>
-      importAvailability.standardTypes.includes(type.value),
-    );
-  }, [typeOptions, importAvailability]);
+    return typeOptions;
+  }, [typeOptions]);
 
   const groupTypeOptions = useMemo(() => {
     if (!importGroupId) return [];
-    if (importAvailability.loading) return typeOptions;
-    const typesForGroup = importAvailability.groupTypes[importGroupId] || [];
-    return typeOptions.filter((type) => typesForGroup.includes(type.value));
-  }, [typeOptions, importAvailability, importGroupId]);
+    return typeOptions;
+  }, [typeOptions, importGroupId]);
 
   const projectTypeOptions = useMemo(() => {
     if (!importProjectId) return [];
-    if (importAvailability.loading) return typeOptions;
-    const typesForProject = importAvailability.projectTypes[importProjectId] || [];
-    return typeOptions.filter((type) => typesForProject.includes(type.value));
-  }, [typeOptions, importAvailability, importProjectId]);
+    return typeOptions;
+  }, [typeOptions, importProjectId]);
 
   const sourceTypeOptions = useMemo(() => {
     if (importScope === "standard") return standardTypeOptions;
@@ -1453,9 +1443,20 @@ const ProjectTemplates = () => {
   );
 
   const sourceOptionGroups = useMemo(() => {
-    const options = Array.isArray(mappingOptions) ? [...mappingOptions] : [];
-    options.push({ value: "calc:SRNO", label: "Auto SR No." });
-    return options;
+    const rawOptions = Array.isArray(mappingOptions) ? mappingOptions : [];
+    const uniqueOptions = [];
+    const seen = new Set();
+
+    for (const opt of rawOptions) {
+      if (opt.value === "calc:SRNO") continue; // Skip backend calc:SRNO to use frontend's label
+      if (!seen.has(opt.value)) {
+        seen.add(opt.value);
+        uniqueOptions.push(opt);
+      }
+    }
+
+    uniqueOptions.push({ value: "calc:SRNO", label: "Auto SR No.", raw: "SRNO" });
+    return uniqueOptions;
   }, [mappingOptions]);
 
   const flatSourceOptions = useMemo(() => {

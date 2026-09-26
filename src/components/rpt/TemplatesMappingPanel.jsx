@@ -73,6 +73,22 @@ const TemplatesMappingPanel = ({
     return <span>{label}</span>;
   };
 
+  const optionRender = (option) => {
+    const valStr = String(option.data.value || "");
+    const match = valStr.match(/^(calc:|eb\.|n\.|e\.|b\.|x\.|c\.)/);
+    const prefix = match ? match[1].replace(".", "") : "";
+    return (
+      <div style={{ display: "flex", justifyContent: "space-between", width: "100%", alignItems: "center" }}>
+        <span>{option.data.label}</span>
+        {prefix && (
+          <Typography.Text type="secondary" style={{ fontSize: 10, marginLeft: 8, opacity: 0.6 }}>
+            {prefix === "calc:" ? "calc" : prefix}
+          </Typography.Text>
+        )}
+      </div>
+    );
+  };
+
   return (
     <Card
       style={{ borderRadius: 8 }}
@@ -110,32 +126,34 @@ const TemplatesMappingPanel = ({
         )}
 
         <Card size="small" style={{ marginBottom: 8 }} bodyStyle={{ padding: 8 }}>
-          <Space style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-            <Typography.Text strong>Field Mapping</Typography.Text>
-            <Space size={8}>
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>Label Copies:</Typography.Text>
-              <InputNumber
-                min={1}
-                max={20}
-                value={labelCopies ?? 1}
-                onChange={(val) => setLabelCopies && setLabelCopies(Number.isFinite(val) && val >= 1 ? Math.round(val) : 1)}
-                style={{ width: 60 }}
-                size="small"
-              />
-              <Button
-                type="primary"
-                onClick={handleSaveMapping}
-                htmlType="button"
-                loading={savingMapping}
-                disabled={!mappingTemplate?.templateId}
-              >
-                Save Mapping
-              </Button>
+          <div style={{ position: "sticky", top: -14, zIndex: 10, backgroundColor: "#fff", margin: "-8px -8px 8px -8px", padding: "8px 8px 4px 8px", borderBottom: "1px solid #f0f0f0" }}>
+            <Space style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <Typography.Text strong>Field Mapping</Typography.Text>
+              <Space size={8}>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>Label Copies:</Typography.Text>
+                <InputNumber
+                  min={1}
+                  max={20}
+                  value={labelCopies ?? 1}
+                  onChange={(val) => setLabelCopies && setLabelCopies(Number.isFinite(val) && val >= 1 ? Math.round(val) : 1)}
+                  style={{ width: 60 }}
+                  size="small"
+                />
+                <Button
+                  type="primary"
+                  onClick={handleSaveMapping}
+                  htmlType="button"
+                  loading={savingMapping}
+                  disabled={!mappingTemplate?.templateId}
+                >
+                  Save Mapping
+                </Button>
+              </Space>
             </Space>
-          </Space>
-          <Typography.Text type="secondary" style={{ fontSize: 11, display: "block", marginBottom: 8 }}>
-            ☑ Check the box before a field name to enter a fixed text value instead of mapping to a column.
-          </Typography.Text>
+            <Typography.Text type="secondary" style={{ fontSize: 11, display: "block" }}>
+              ☑ Check the box before a field name to enter a fixed text value instead of mapping to a column.
+            </Typography.Text>
+          </div>
           {mappingOptionsLoading ? (
             <Typography.Text type="secondary">Loading available columns...</Typography.Text>
           ) : parsedFields.length === 0 ? (
@@ -224,13 +242,14 @@ const TemplatesMappingPanel = ({
                     }
 
                     return (
-                      <Select
-                        showSearch
-                        allowClear
-                        placeholder="Select source column"
-                        value={mappingSelections[record.field]}
-                        options={sourceOptionGroups}
-                        labelRender={labelRender}
+                        <Select
+                          showSearch
+                          allowClear
+                          placeholder="Select source column"
+                          value={mappingSelections[record.field]}
+                          options={sourceOptionGroups}
+                          labelRender={labelRender}
+                          optionRender={optionRender}
                         style={{ width: "100%" }}
                         filterOption={(input, option) =>
                           (option?.label ?? "")
@@ -301,6 +320,7 @@ const TemplatesMappingPanel = ({
                   placeholder="Choose fields for QR"
                   options={sourceOptionGroups}
                   labelRender={labelRender}
+                  optionRender={optionRender}
                   value={qrConfiguration?.qrFields || []}
                   onChange={(fields) => setQrConfiguration?.({ ...(qrConfiguration || {}), qrFields: fields })}
                   style={{ width: "100%", marginTop: 4 }}
@@ -346,6 +366,7 @@ const TemplatesMappingPanel = ({
             placeholder="Choose group by columns"
             options={sourceOptionGroups}
             labelRender={labelRender}
+            optionRender={optionRender}
             value={groupBySelections}
             onChange={(values) => setGroupBySelections(values)}
             style={{ width: "100%", marginTop: 8 }}
@@ -366,6 +387,7 @@ const TemplatesMappingPanel = ({
             placeholder="Choose order by columns"
             options={sourceOptionGroups}
             labelRender={labelRender}
+            optionRender={optionRender}
             value={orderByColumns}
             onChange={(values) => setOrderBySelections(values)}
             style={{ width: "100%", marginTop: 8 }}

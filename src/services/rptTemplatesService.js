@@ -1,7 +1,7 @@
 import axios from "axios";
 
 export const fetchGroupOptions = async (baseUrl) => {
-  const res = await axios.get(`${baseUrl}/Groups`);
+  const res = await axios.get(`${import.meta.env.VITE_API_BASE_URL}/Groups`);
   return (res.data || []).map((group) => ({
     label: group.name || group.groupName,
     value: group.id || group.groupId,
@@ -9,7 +9,7 @@ export const fetchGroupOptions = async (baseUrl) => {
 };
 
 export const fetchTypeOptions = async (baseUrl) => {
-  const res = await axios.get(`${baseUrl}/PaperTypes`);
+  const res = await axios.get(`${import.meta.env.VITE_API_BASE_URL}/PaperTypes`);
   return (res.data || []).map((type) => ({
     label: type.types,
     value: type.typeId,

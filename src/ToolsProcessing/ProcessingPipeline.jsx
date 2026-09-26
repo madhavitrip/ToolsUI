@@ -84,6 +84,9 @@ const ProcessingPipeline = () => {
   const staleEnvLotIds = useStore((state) => state.staleEnvLotIds);
   const removeStaleEnvLotIds = useStore((state) => state.removeStaleEnvLotIds);
   const projectId = useStore((state) => state.projectId);
+  const globalSelectedLot = useStore((state) => state.selectedLot);
+  const selectedDropdownLot = globalSelectedLot !== null && globalSelectedLot !== undefined && globalSelectedLot !== "" ? String(globalSelectedLot) : "all";
+
   useEffect(() => {
     if (projectId && !isLoadingData) {
       if (!isConfigured) {
@@ -109,7 +112,6 @@ const ProcessingPipeline = () => {
   const [selectedBatch, setSelectedBatch] = useState(1);
   const [loadingBatches, setLoadingBatches] = useState(false);
   const [dropdownLots, setDropdownLots] = useState([]);
-  const [selectedDropdownLot, setSelectedDropdownLot] = useState("all");
 
   useEffect(() => {
     if (projectId) {
@@ -124,11 +126,21 @@ const ProcessingPipeline = () => {
       const data = res.data || [];
       const validLots = data.filter(lot => lot.lotNo > 0).map(lot => lot.lotNo);
       setDropdownLots(validLots);
-      setSelectedDropdownLot("all");
+      window.dispatchEvent(new Event("refreshLots"));
     } catch (err) {
       console.error("Failed to fetch lots for dropdown", err);
     }
   };
+
+  useEffect(() => {
+    if (selectedDropdownLot !== "all" && selectedDropdownLot !== null) {
+      setSelectedLotTab(Number(selectedDropdownLot));
+    } else if (dropdownLots && dropdownLots.length > 0) {
+      setSelectedLotTab(dropdownLots[0]);
+    } else {
+      setSelectedLotTab(null);
+    }
+  }, [selectedDropdownLot, dropdownLots]);
 
   const loadBatches = async () => {
     try {
@@ -203,14 +215,19 @@ const ProcessingPipeline = () => {
   const [reportsLoading, setReportsLoading] = useState(false);
   const [generatedTemplateReports, setGeneratedTemplateReports] = useState([]);
   const [reportVersions, setReportVersions] = useState({});
+  const [excelReports, setExcelReports] = useState([]);
 
   const loadReportVersions = async () => {
     if (!projectId) return;
     try {
-      const res = await API.get(`/EnvelopeBreakages/Reports/AllVersions?projectId=${projectId}`);
-      setReportVersions(res.data || {});
+      const [allVerRes, excelRes] = await Promise.all([
+        API.get(`/EnvelopeBreakages/Reports/AllVersions?projectId=${projectId}`).catch(() => ({ data: {} })),
+        API.get(`/ExcelReports/ByProject/${projectId}`).catch(() => ({ data: [] }))
+      ]);
+      setReportVersions(allVerRes.data || {});
+      setExcelReports(excelRes.data || []);
     } catch (err) {
-      console.error("Failed to load report versions", err);
+      console.error("Failed to load report versions or excel reports", err);
     }
   };
 
@@ -2228,6 +2245,7 @@ const loadGeneratedTemplateReports = async () => {
       }
 
       setAvailableLots(lots);
+      window.dispatchEvent(new Event("refreshLots"));
       // Set first lot as default selected tab
       if (lots.length > 0) {
         setSelectedLotTab(lots[0].lotNo);
@@ -4070,86 +4088,131 @@ const loadGeneratedTemplateReports = async () => {
   }
 
   const combinedReportData = useMemo(() => {
-  const list = [];
-  let keyId = 0;
+    const list = [];
+    let keyId = 0;
 
-  Object.keys(reportVersions || {}).forEach((moduleKey) => {
-    const versions = reportVersions[moduleKey] || [];
+    const moduleIdToNameMap = {
+      1: "Duplicate Tool",
+      2: "Envelope Setup and Enhancement",
+      3: "Extra Configuration",
+      4: "Envelope Breaking",
+      5: "Box Breaking",
+      6: "Envelope Summary",
+      7: "Catch Summary Report"
+    };
 
-    const grouped = {};
+    if (excelReports && excelReports.length > 0) {
+      const groupedExcel = {};
+      excelReports.forEach((er) => {
+        const rawPath = er.filePath || er.FilePath || "";
+        const fileName = rawPath ? rawPath.split(/[/\\]/).pop() : `Report_${er.id || er.Id}.xlsx`;
+        const baseName = fileName.replace(/[_-]?v\d+(?=\.[^.]+$)/i, '');
+        const fnLower = (fileName || rawPath).toLowerCase();
+        let modId = er.moduleId || er.ModuleId;
+        if (fnLower.includes("enhancement")) {
+          modId = 2;
+        } else if (fnLower.includes("extra")) {
+          modId = 3;
+        }
+        const groupKey = `${modId}_${er.lot || er.Lot || 0}_${baseName}`;
+        if (!groupedExcel[groupKey]) {
+          groupedExcel[groupKey] = [];
+        }
+        groupedExcel[groupKey].push({ ...er, fileName, baseName, rawPath, normalizedModuleId: modId });
+      });
 
-    versions.forEach((v) => {
-  const baseName = v.fileName
-    .replace(/[_-]?v\d+(?=\.[^.]+$)/i, '');
+      Object.keys(groupedExcel).forEach((groupKey) => {
+        const sortedVers = [...groupedExcel[groupKey]].sort(
+          (a, b) => Number(b.version || b.Version || 0) - Number(a.version || a.Version || 0) || new Date(b.generatedAt || b.GeneratedAt || 0) - new Date(a.generatedAt || a.GeneratedAt || 0)
+        );
+        const latestVer = Number(sortedVers[0]?.version || sortedVers[0]?.Version || 0);
 
-  if (!grouped[baseName]) {
-    grouped[baseName] = [];
-  }
+        sortedVers.forEach((er) => {
+          const curVer = Number(er.version || er.Version || 0);
+          let modId = er.normalizedModuleId || er.moduleId || er.ModuleId;
+          const fnLower = (er.fileName || er.rawPath || "").toLowerCase();
+          if (fnLower.includes("enhancement")) {
+            modId = 2;
+          } else if (fnLower.includes("extra")) {
+            modId = 3;
+          }
+          const lotVal = er.lot || er.Lot;
+          const genAt = er.generatedAt || er.GeneratedAt;
+          const genBy = er.generatedByUserId || er.GeneratedByUserId;
+          const statusVal = er.status ?? er.Status;
 
-  grouped[baseName].push(v);
-});
+          const formattedReportName = er.fileName
+            ? (er.fileName.includes('_v')
+                ? er.fileName
+                : (curVer > 0 && er.fileName.includes('.')
+                    ? `${er.fileName.substring(0, er.fileName.lastIndexOf('.'))}_v${curVer}${er.fileName.substring(er.fileName.lastIndexOf('.'))}`
+                    : er.fileName))
+            : `${er.baseName}_v${curVer}.xlsx`;
 
-    Object.keys(grouped).forEach((baseName) => {
-  const fileVersions = [...grouped[baseName]].sort(
-    (a, b) =>
-      Number(b.version || 0) -
-      Number(a.version || 0)
-  );
+          list.push({
+            key: `excel-report-${er.id || er.Id}`,
+            type: "Report",
+            id: er.id || er.Id,
+            module: moduleIdToNameMap[modId] || "General Report",
+            templateName: "-",
+            reportName: formattedReportName,
+            fileName: er.fileName,
+            filePath: er.rawPath,
+            lot: lotVal,
+            versions: [
+              {
+                id: er.id || er.Id,
+                version: curVer > 0 ? `v${curVer}` : "Latest",
+                generatedOn: genAt,
+                generatedByUserId: genBy,
+                status: (curVer === latestVer || statusVal) ? "Latest" : "Previous",
+                fileUrl: `${import.meta.env.VITE_API_URL}/ExcelReports/Download/${er.id || er.Id}`,
+                filePath: er.rawPath
+              }
+            ]
+          });
+        });
+      });
+    } else {
+      Object.keys(reportVersions || {}).forEach((moduleKey) => {
+        const versions = reportVersions[moduleKey] || [];
+        const grouped = {};
+        versions.forEach((v) => {
+          const baseName = v.fileName.replace(/[_-]?v\d+(?=\.[^.]+$)/i, '');
+          if (!grouped[baseName]) grouped[baseName] = [];
+          grouped[baseName].push(v);
+        });
 
-  const latestVersion = Number(
-    fileVersions[0]?.version || 0
-  );
+        Object.keys(grouped).forEach((baseName) => {
+          const fileVersions = [...grouped[baseName]].sort(
+            (a, b) => Number(b.version || 0) - Number(a.version || 0)
+          );
+          const latestVersion = Number(fileVersions[0]?.version || 0);
 
-  fileVersions.forEach((fv) => {
-    const currentVersion = Number(
-      fv.version || 0
-    );
-
-    list.push({
-      key: `report-${keyId++}`,
-
-      type: "Report",
-
-      module:
-        moduleKeyToNameMap[moduleKey] ||
-        moduleKey,
-
-      templateName: "-",
-
-      reportName:
-        baseName +
-        (
-          currentVersion > 0
-            ? ` (v${currentVersion})`
-            : ""
-        ),
-
-      versions: [
-        {
-          version:
-            currentVersion > 0
-              ? `v${currentVersion}`
-              : "Latest",
-
-          generatedOn:
-            fv.generatedAt,
-
-          generatedBy:
-            fv.generatedBy || "-",
-
-          status:
-            currentVersion === latestVersion
-              ? "Latest"
-              : "Previous",
-
-          fileUrl:
-            `${url3}/${projectId}/${fv.fileName}`,
-        },
-      ],
-    });
-  });
-});
-  });
+          fileVersions.forEach((fv) => {
+            const currentVersion = Number(fv.version || 0);
+            list.push({
+              key: `report-${keyId++}`,
+              type: "Report",
+              module: moduleKeyToNameMap[moduleKey] || moduleKey,
+              templateName: "-",
+              reportName: fv.fileName || baseName,
+              fileName: fv.fileName,
+              versions: [
+                {
+                  version: currentVersion > 0 ? `v${currentVersion}` : "Latest",
+                  generatedOn: fv.generatedAt,
+                  generatedBy: fv.generatedBy || "-",
+                  generatedByUserId: fv.generatedByUserId,
+                  status: currentVersion === latestVersion ? "Latest" : "Previous",
+                  fileUrl: `${url3}/${projectId}/${fv.fileName}`,
+                },
+              ],
+            });
+          });
+        });
+      });
+    }
     const allTemplateReports = [
   ...(envLotReports || []),
   ...(generatedTemplateReports || []),
@@ -4330,7 +4393,7 @@ Object.keys(groupedTpl).forEach((templateKey) => {
     });
 
     return list;
-  }, [reportVersions, envLotReports, generatedTemplateReports, projectId, templateOptions, allModules]);
+  }, [reportVersions, excelReports, envLotReports, generatedTemplateReports, projectId, templateOptions, allModules]);
 
   return (
     <ErrorBoundary>
@@ -4424,13 +4487,8 @@ Object.keys(groupedTpl).forEach((templateKey) => {
               }
             });
 
-            // If no selected modules have pending data (and no config change), the button should be disabled
-            if (modulesWithPendingData.length === 0) {
-              return false;
-            }
-
             // For the modules that DO have pending data, ensure they are all ready (or virtually ready)
-            const hasModulePendingData = modulesWithPendingData.every(m => {
+            const hasModulePendingData = modulesWithPendingData.length > 0 && modulesWithPendingData.every(m => {
               const lotListKeyMap = {
                 duplicate: "readyDuplicateLots",
                 enhancement: "readyEnhancementLots",
@@ -4446,7 +4504,16 @@ Object.keys(groupedTpl).forEach((templateKey) => {
                 envelopebreaking: "extra",
                 box: "envelopebreaking"
               };
-              const dep = dependencies[m];
+
+              const getEffectiveDependency = (mod) => {
+                let currentDep = dependencies[mod];
+                while (currentDep && allModules && !allModules.some(s => s.key === currentDep || s.name?.toLowerCase().includes(currentDep))) {
+                  currentDep = dependencies[currentDep];
+                }
+                return currentDep;
+              };
+
+              const dep = getEffectiveDependency(m);
               const isDepSelected = dep && selectedModules.includes(dep);
 
               if (selectedDropdownLot !== "all" && selectedDropdownLot !== null) {
@@ -4475,7 +4542,7 @@ Object.keys(groupedTpl).forEach((templateKey) => {
               }
 
               if (m === "box") {
-                return true; // Box breaking logic is handled by standard pending check if it reached here
+                return true;
               }
               return true;
             });
@@ -4530,34 +4597,7 @@ Object.keys(groupedTpl).forEach((templateKey) => {
         >
           <Card
             size="small"
-            title={
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span>Enabled Modules Status & Reports</span>
-                <Select
-                  size="small"
-                  style={{ width: 90 }}
-                  placeholder="Select Lot"
-                  value={selectedDropdownLot}
-                  onChange={(val) => {
-                    setSelectedDropdownLot(val);
-                    if (val !== "all") {
-                      setSelectedLotTab(Number(val));
-                    } else if (dropdownLots && dropdownLots.length > 0) {
-                      setSelectedLotTab(dropdownLots[0]);
-                    } else {
-                      setSelectedLotTab(null);
-                    }
-                  }}
-                >
-                  <Select.Option value="all">All Lots</Select.Option>
-                  {dropdownLots.map((lotNo) => (
-                    <Select.Option key={lotNo} value={lotNo}>
-                      Lot {lotNo}
-                    </Select.Option>
-                  ))}
-                </Select>
-              </div>
-            }
+            title={<span>Enabled Modules Status & Reports</span>}
             className="pipeline-table-card"
             style={{
               marginBottom: 12,
@@ -4820,11 +4860,14 @@ Object.keys(groupedTpl).forEach((templateKey) => {
         apiBaseUrl={import.meta.env.VITE_API_URL}
         rptApiUrl={import.meta.env.VITE_RPT_API_URL}
         envLotReports={envLotReports}
+        availableLots={availableLots}
         onDownload={(version, report) => {
           if (version?.fileUrl) {
             const link = document.createElement("a");
             link.href = version.fileUrl;
-            link.download = report?.reportName || 'Report';
+            let dn = report?.reportName || 'Report';
+            if (!dn.toLowerCase().endsWith('.xlsx')) dn += '.xlsx';
+            link.download = dn;
             link.target = "_blank";
             document.body.appendChild(link);
             link.click();

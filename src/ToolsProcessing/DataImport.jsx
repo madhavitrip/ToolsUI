@@ -1165,7 +1165,6 @@ const DataImport = () => {
     setFieldMappings({});
     setAddedFieldIds([]);
     setExcelData([]);
-    setExpectedFields([]);
     setConflicts(null);
     setSkipItems(false)
     setQuantity(0);
@@ -2514,6 +2513,13 @@ const DataImport = () => {
                                       : undefined,
                                   }}
                                   placeholder="Select matching column from file"
+                                  showSearch
+                                  filterOption={(input, option) =>
+                                    (option?.children ?? "")
+                                      .toString()
+                                      .toLowerCase()
+                                      .includes(input.toLowerCase())
+                                  }
                                   value={
                                     fieldMappings[expectedField.fieldId]
                                   }

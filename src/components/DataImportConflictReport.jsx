@@ -1,5 +1,5 @@
 import React from "react";
-import { AutoComplete, Button, Collapse, Empty, Input, Space, Table, Tabs, Tag, Typography } from "antd";
+import { AutoComplete, Button, Collapse, Empty, Input, Radio, Select, Space, Table, Tabs, Tag, Typography } from "antd";
 import { CheckCircleOutlined } from "@ant-design/icons";
 import {
   CONFLICT_STATUS,
@@ -142,13 +142,20 @@ const normalizeConflict = (item) => {
   const importRowNos = toArray(getValue(item, "importRowNos", "ImportRowNos"));
   const nodalCodes = toArray(getValue(item, "nodalCodes", "NodalCodes"));
   const centerCodes = toArray(getValue(item, "centerCodes", "CenterCodes"));
+  const centerNames = toArray(getValue(item, "centerNames", "CenterNames"));
   const canIgnore = Boolean(getValue(item, "canIgnore", "CanIgnore"));
   const status = (getValue(item, "status", "Status") || CONFLICT_STATUS.PENDING).toLowerCase();
   const minNrQuantity = getValue(item, "minNrQuantity", "MinNrQuantity");
   const maxNrQuantity = getValue(item, "maxNrQuantity", "MaxNrQuantity");
+  const dcId = getValue(item, "dcId", "DcId", "id", "Id");
+  const uniqueValue = getValue(item, "uniqueValue", "UniqueValue");
 
   const details = {
     key: getConflictKey(item),
+    dcId,
+    id: getValue(item, "id", "Id"),
+    uniqueValue,
+    rawItem: item,
     conflictType,
     canIgnore,
     status,
@@ -167,6 +174,7 @@ const normalizeConflict = (item) => {
     importRowNos,
     nodalCodes,
     centerCodes,
+    centerNames,
     minNrQuantity,
     maxNrQuantity,
     meta,
@@ -334,14 +342,295 @@ const renderResolvedFieldValues = (conflict) => {
     );
   }
 
-  return renderValueTags(conflict.valuesForSelection, conflict.key);
+  const isCenterNodalConflict =
+    conflict.conflictType === "unassigned_catch_nodal" ||
+    conflict.conflictType === "college_multiple_centers" ||
+    conflict.conflictType === "center_multiple_nodals";
+
+  if (isCenterNodalConflict) {
+    const catchCenterCodes = toArray(conflict.centerCodes || conflict.conflictingValues || []);
+    const catchCenterNames = toArray(conflict.centerNames || []);
+
+    return (
+      <Space direction="vertical" size={4} style={{ width: "100%" }}>
+        {catchCenterCodes.length > 0 ? (
+          <div>
+            <Text style={{ fontSize: 11, fontWeight: 600, color: "#334155", display: "block", marginBottom: 2 }}>
+              Catch List Center Data:
+            </Text>
+            <Space wrap size={[2, 2]}>
+              {catchCenterCodes.map((code, idx) => (
+                <Tag key={idx} color="blue" style={{ fontSize: 11, padding: "2px 6px" }}>
+                  Center {code} {catchCenterNames[idx] ? `- ${catchCenterNames[idx]}` : ""}
+                </Tag>
+              ))}
+            </Space>
+          </div>
+        ) : (
+          <Text type="secondary" style={{ fontSize: 11 }}>Missing in Nodal List</Text>
+        )}
+      </Space>
+    );
+  }
+
+  const values = conflict.valuesForSelection;
+  if (!values?.length) {
+    return <Text type="secondary">-</Text>;
+  }
+
+  return (
+    <Text style={{ fontSize: 11 }}>
+      {conflict.field ? `${conflict.field}: ` : ""}{values.join(", ")}
+    </Text>
+  );
 };
 
-const renderActionCell = (conflict, selectedValue, loading, onSelectionChange, onResolve, onIgnore) => {
-  const isIgnored = conflict.status === CONFLICT_STATUS.IGNORED;
-  const canRenderIgnore = typeof onIgnore === "function";
+const renderActionCell = (conflict, selectedValue, loading, onSelectionChange, onResolve, centerNodalOptions = []) => {
+  const isCenterNodalConflict =
+    conflict.conflictType === "unassigned_catch_nodal" ||
+    conflict.conflictType === "college_multiple_centers" ||
+    conflict.conflictType === "center_multiple_nodals";
+
+  if (isCenterNodalConflict) {
+    const isCenterMultipleNodals = conflict.conflictType === "center_multiple_nodals";
+    const catchCodes = toArray(conflict.centerCodes || (isCenterMultipleNodals ? [] : conflict.conflictingValues) || []);
+    const catchNames = toArray(conflict.centerNames || []);
+
+    const nodalCodesArr = toArray(conflict.nodalCodes || (isCenterMultipleNodals ? conflict.conflictingValues : []) || []);
+    const nodalNamesArr = toArray(conflict.nodalNames || []);
+
+    const defaultCenterCode = isCenterMultipleNodals
+      ? String(conflict.centreCode || conflict.centerCode || "")
+      : (catchCodes[0] ? String(catchCodes[0]) : "");
+    const defaultCenterName = catchNames[0] || (defaultCenterCode ? `Center ${defaultCenterCode}` : "");
+
+    const defaultNodalCode = isCenterMultipleNodals
+      ? (nodalCodesArr[0] ? String(nodalCodesArr[0]) : "")
+      : defaultCenterCode;
+    const defaultNodalName = isCenterMultipleNodals
+      ? (nodalNamesArr[0] || (defaultNodalCode ? `Nodal ${defaultNodalCode}` : ""))
+      : (defaultCenterName ? `Nodal ${defaultCenterCode}` : "");
+
+    const centerCodeVal =
+      typeof selectedValue === "object" && selectedValue !== null && selectedValue.centerCode !== undefined
+        ? selectedValue.centerCode
+        : defaultCenterCode;
+
+    const centerNameVal =
+      typeof selectedValue === "object" && selectedValue !== null && selectedValue.centerName !== undefined
+        ? selectedValue.centerName
+        : defaultCenterName;
+
+    const nodalCodeVal =
+      typeof selectedValue === "object" && selectedValue !== null && selectedValue.nodalCode !== undefined
+        ? selectedValue.nodalCode
+        : defaultNodalCode;
+
+    const nodalNameVal =
+      typeof selectedValue === "object" && selectedValue !== null && selectedValue.nodalName !== undefined
+        ? selectedValue.nodalName
+        : defaultNodalName;
+
+    // Options for Center AutoComplete
+    const centerOptionsMap = new Map();
+
+    if (conflict.records && conflict.records.length > 0) {
+      conflict.records.forEach((r) => {
+        const cCode = String(r.examCenterCode || r.ExamCenterCode || r.centerCode || "");
+        const cName = r.examCenterName || r.ExamCenterName || r.centerName || "";
+        if (cCode && !centerOptionsMap.has(cCode)) {
+          centerOptionsMap.set(cCode, {
+            value: cCode,
+            label: cName ? `${cCode} - ${cName}` : cCode,
+            centerName: cName,
+          });
+        }
+      });
+    }
+
+    catchCodes.forEach((code, idx) => {
+      const sCode = String(code);
+      const name = catchNames[idx] || "";
+      if (!centerOptionsMap.has(sCode)) {
+        centerOptionsMap.set(sCode, {
+          value: sCode,
+          label: name ? `${sCode} - ${name} (Catch List)` : `${sCode} (Catch List)`,
+          centerName: name,
+        });
+      }
+    });
+    (centerNodalOptions || []).forEach((opt) => {
+      if (opt.centerCode && !centerOptionsMap.has(String(opt.centerCode))) {
+        centerOptionsMap.set(String(opt.centerCode), {
+          value: String(opt.centerCode),
+          label: opt.centerName ? `${opt.centerCode} - ${opt.centerName}` : String(opt.centerCode),
+          centerName: opt.centerName || "",
+        });
+      }
+    });
+
+    // Options for Nodal AutoComplete
+    const nodalOptionsMap = new Map();
+    if (conflict.records && conflict.records.length > 0) {
+      conflict.records.forEach((r) => {
+        const nCode = String(r.nodalCode || r.NodalCode || "");
+        const nName = r.nodalName || r.NodalName || "";
+        if (nCode && !nodalOptionsMap.has(nCode)) {
+          nodalOptionsMap.set(nCode, {
+            value: nCode,
+            label: nName ? `${nCode} - ${nName}` : nCode,
+            nodalName: nName,
+          });
+        }
+      });
+    }
+
+    nodalCodesArr.forEach((code, idx) => {
+      const sCode = String(code);
+      const name = nodalNamesArr[idx] || "";
+      if (!nodalOptionsMap.has(sCode)) {
+        nodalOptionsMap.set(sCode, {
+          value: sCode,
+          label: name ? `${sCode} - ${name}` : sCode,
+          nodalName: name,
+        });
+      }
+    });
+
+    (centerNodalOptions || []).forEach((opt) => {
+      if (opt.nodalCode && !nodalOptionsMap.has(String(opt.nodalCode))) {
+        nodalOptionsMap.set(String(opt.nodalCode), {
+          value: String(opt.nodalCode),
+          label: opt.nodalName ? `${opt.nodalCode} - ${opt.nodalName}` : String(opt.nodalCode),
+          nodalName: opt.nodalName || "",
+        });
+      }
+    });
+    catchCodes.forEach((code) => {
+      const sCode = String(code);
+      if (!nodalOptionsMap.has(sCode)) {
+        nodalOptionsMap.set(sCode, {
+          value: sCode,
+          label: `${sCode} (Catch List)`,
+          nodalName: `Nodal ${sCode}`,
+        });
+      }
+    });
+
+    const isDisableResolve = isCenterMultipleNodals
+      ? !String(nodalCodeVal).trim()
+      : (!String(centerCodeVal).trim() && !String(nodalCodeVal).trim());
+
+    const matchedCenterOpt = centerOptionsMap.get(String(centerCodeVal));
+    const matchedNodalOpt = nodalOptionsMap.get(String(nodalCodeVal));
+
+    const finalCenterNameVal = centerNameVal || matchedCenterOpt?.centerName || "";
+    const finalNodalNameVal = nodalNameVal || matchedNodalOpt?.nodalName || "";
+
+    const currentSelectionObj = {
+      centerCode: centerCodeVal,
+      centerName: finalCenterNameVal,
+      nodalCode: nodalCodeVal,
+      nodalName: finalNodalNameVal,
+    };
+
+    return (
+      <Space direction="vertical" size={4} style={{ width: "100%" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <Text style={{ fontSize: 10, color: "#475569", width: 42, flexShrink: 0, fontWeight: 600 }}>Center:</Text>
+            {isCenterMultipleNodals ? (
+              <Input
+                size="small"
+                style={{ width: "100%" }}
+                value={centerCodeVal ? (finalCenterNameVal ? `${centerCodeVal} - ${finalCenterNameVal}` : centerCodeVal) : (conflict.centreCode ? `${conflict.centreCode}` : "")}
+                disabled
+              />
+            ) : (
+              <AutoComplete
+                size="small"
+                style={{ width: "100%" }}
+                placeholder="Center Code"
+                value={centerCodeVal}
+                onChange={(val) => {
+                  const opt = centerOptionsMap.get(String(val));
+                  const newCenterName = opt ? opt.centerName : (String(val) === String(currentSelectionObj.centerCode) ? currentSelectionObj.centerName : "");
+                  onSelectionChange(conflict.key, {
+                    ...currentSelectionObj,
+                    centerCode: val,
+                    centerName: newCenterName,
+                  });
+                }}
+                onSelect={(val, option) => {
+                  const opt = centerOptionsMap.get(String(val));
+                  const newCenterName = option?.centerName || opt?.centerName || currentSelectionObj.centerName || "";
+                  onSelectionChange(conflict.key, {
+                    ...currentSelectionObj,
+                    centerCode: val,
+                    centerName: newCenterName,
+                  });
+                }}
+                options={Array.from(centerOptionsMap.values())}
+                filterOption={(input, option) =>
+                  String(option?.label ?? "").toLowerCase().includes(String(input || "").toLowerCase()) ||
+                  String(option?.value ?? "").toLowerCase().includes(String(input || "").toLowerCase())
+                }
+                allowClear
+              />
+            )}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <Text style={{ fontSize: 10, color: "#475569", width: 42, flexShrink: 0, fontWeight: 600 }}>Nodal:</Text>
+            <AutoComplete
+              size="small"
+              style={{ width: "100%" }}
+              placeholder="Nodal Code"
+              value={nodalCodeVal}
+              onChange={(val) => {
+                const opt = nodalOptionsMap.get(String(val));
+                const newNodalName = opt ? opt.nodalName : (String(val) === String(currentSelectionObj.nodalCode) ? currentSelectionObj.nodalName : "");
+                onSelectionChange(conflict.key, {
+                  ...currentSelectionObj,
+                  nodalCode: val,
+                  nodalName: newNodalName,
+                });
+              }}
+              onSelect={(val, option) => {
+                const opt = nodalOptionsMap.get(String(val));
+                const newNodalName = option?.nodalName || opt?.nodalName || currentSelectionObj.nodalName || "";
+                onSelectionChange(conflict.key, {
+                  ...currentSelectionObj,
+                  nodalCode: val,
+                  nodalName: newNodalName,
+                });
+              }}
+              options={Array.from(nodalOptionsMap.values())}
+              filterOption={(input, option) =>
+                String(option?.label ?? "").toLowerCase().includes(String(input || "").toLowerCase()) ||
+                String(option?.value ?? "").toLowerCase().includes(String(input || "").toLowerCase())
+              }
+              allowClear
+            />
+          </div>
+        </div>
+
+        <Button
+          type="primary"
+          size="small"
+          icon={<CheckCircleOutlined />}
+          disabled={isDisableResolve}
+          loading={loading}
+          onClick={() => onResolve(conflict, currentSelectionObj)}
+          style={{ marginTop: 2, alignSelf: "flex-start" }}
+        >
+          Resolve
+        </Button>
+      </Space>
+    );
+  }
+
   const normalizedSelectedValue =
-    selectedValue === undefined || selectedValue === null ? undefined : String(selectedValue);
+    selectedValue === undefined || selectedValue === null ? "" : String(selectedValue);
   const zeroQuantityHelp =
     conflict.conflictType === "zero_nr_quantity" &&
     conflict.minNrQuantity !== undefined &&
@@ -351,24 +640,30 @@ const renderActionCell = (conflict, selectedValue, loading, onSelectionChange, o
       ? `Min: ${conflict.minNrQuantity}, Max: ${conflict.maxNrQuantity}`
       : null;
 
-  if (conflict.resolveKind === "select") {
-    const rawOptions = conflict.valuesForSelection || [];
-    const options = Array.from(new Set(rawOptions.map(String).filter(Boolean))).map((value) => ({
-      value,
-      label: value,
-    }));
+  const rawOptions = [
+    ...(conflict.valuesForSelection || []),
+    ...(conflict.conflictingValues || []),
+    ...(conflict.centerCodes || []),
+    ...(conflict.nodalCodes || []),
+  ];
 
-    const placeholder =
-      conflict.conflictType === "zero_nr_quantity"
-        ? "Select or type NRQuantity"
-        : conflict.conflictType === "center_multiple_nodals" || conflict.conflictType === "college_multiple_nodals"
-        ? "Select or type Nodal"
-        : conflict.conflictType === "college_multiple_centers" || conflict.conflictType === "unassigned_catch_nodal"
-        ? "Select or type Center"
-        : "Select or type value";
+  const options = Array.from(new Set(rawOptions.map(String).filter(Boolean))).map((value) => ({
+    value,
+    label: value,
+  }));
 
-    return (
-      <Space direction="vertical" size={6}>
+  const placeholder =
+    conflict.conflictType === "zero_nr_quantity"
+      ? "Select or type NRQuantity"
+      : conflict.conflictType === "center_multiple_nodals" || conflict.conflictType === "college_multiple_nodals"
+      ? "Select or type Nodal"
+      : conflict.conflictType === "college_multiple_centers" || conflict.conflictType === "unassigned_catch_nodal"
+      ? "Select or type Center"
+      : "Select or type value";
+
+  return (
+    <Space direction="vertical" size={4} style={{ width: "100%" }}>
+      <Space wrap size={[4, 4]}>
         <AutoComplete
           size="small"
           style={{ width: 160 }}
@@ -381,78 +676,27 @@ const renderActionCell = (conflict, selectedValue, loading, onSelectionChange, o
           }
           allowClear
         />
-        {zeroQuantityHelp ? <Text type="secondary" style={{ fontSize: 11 }}>{zeroQuantityHelp}</Text> : null}
-        <Space wrap size={[4, 4]}>
-          <Button
-            type="primary"
-            size="small"
-            icon={<CheckCircleOutlined />}
-            disabled={normalizedSelectedValue === undefined || normalizedSelectedValue.trim() === ""}
-            loading={loading}
-            onClick={() => onResolve(conflict, normalizedSelectedValue.trim())}
-          >
-            Resolve
-          </Button>
-          {canRenderIgnore && (
-            <Button size="small" disabled={isIgnored} onClick={() => onIgnore(conflict)}>
-              {isIgnored ? "Ignored" : "Ignore"}
-            </Button>
-          )}
-        </Space>
-      </Space>
-    );
-  }
-
-  if (conflict.resolveKind === "input") {
-    return (
-      <Space direction="vertical" size={6}>
-        <Input
+        <Button
+          type="primary"
           size="small"
-          style={{ width: 160 }}
-          placeholder={`Enter ${conflict.targetField}`}
-          value={selectedValue}
-          onChange={(event) => onSelectionChange(conflict.key, event.target.value)}
-        />
-        <Space wrap size={[4, 4]}>
-          <Button
-            type="primary"
-            size="small"
-            icon={<CheckCircleOutlined />}
-            disabled={selectedValue === undefined || selectedValue === null || String(selectedValue).trim() === ""}
-            loading={loading}
-            onClick={() => onResolve(conflict, String(selectedValue).trim())}
-          >
-            Resolve
-          </Button>
-          {canRenderIgnore && (
-            <Button size="small" disabled={isIgnored} onClick={() => onIgnore(conflict)}>
-              {isIgnored ? "Ignored" : "Ignore"}
-            </Button>
-          )}
-        </Space>
-      </Space>
-    );
-  }
-
-  if (canRenderIgnore) {
-    return (
-      <Space wrap size={[4, 4]}>
-        <Text type="secondary">Review only</Text>
-        <Button size="small" disabled={isIgnored} onClick={() => onIgnore(conflict)}>
-          {isIgnored ? "Ignored" : "Ignore"}
+          icon={<CheckCircleOutlined />}
+          disabled={!normalizedSelectedValue || normalizedSelectedValue.trim() === ""}
+          loading={loading}
+          onClick={() => onResolve(conflict, normalizedSelectedValue.trim())}
+        >
+          Resolve
         </Button>
       </Space>
-    );
-  }
-
-  return <Text type="secondary">Review only</Text>;
+      {zeroQuantityHelp ? <Text type="secondary" style={{ fontSize: 11 }}>{zeroQuantityHelp}</Text> : null}
+    </Space>
+  );
 };
 
-const buildColumns = (conflictSelections, onSelectionChange, onResolve, onIgnore, loading, resolvedFieldLabel) => [
+const buildColumns = (conflictSelections, onSelectionChange, onResolve, onIgnore, loading, centerNodalOptions) => [
   {
     title: "Summary",
     key: "conflict",
-    width: 360,
+    width: 320,
     render: (_, conflict) => {
       return (
         <Space direction="vertical" size={4}>
@@ -469,7 +713,7 @@ const buildColumns = (conflictSelections, onSelectionChange, onResolve, onIgnore
   {
     title: "Status",
     key: "status",
-    width: 100,
+    width: 90,
     render: (_, conflict) => {
       const statusConfig = STATUS_TAG_CONFIG[conflict.status] || STATUS_TAG_CONFIG[CONFLICT_STATUS.PENDING];
 
@@ -483,19 +727,25 @@ const buildColumns = (conflictSelections, onSelectionChange, onResolve, onIgnore
   {
     title: "Details",
     key: "details",
-    width: 300,
+    width: 260,
     render: (_, conflict) => renderMetaTags(conflict),
   },
   {
-    title: resolvedFieldLabel || "Resolved Field",
+    title: "Conflicting Fields",
     key: "resolvedField",
-    width: 240,
-    render: (_, conflict) => renderResolvedFieldValues(conflict),
+    width: 260,
+    render: (_, conflict) =>
+      renderResolvedFieldValues(
+        conflict,
+        conflictSelections[conflict.key],
+        onSelectionChange,
+        centerNodalOptions
+      ),
   },
   {
     title: "Action",
     key: "action",
-    width: 220,
+    width: 270,
     render: (_, conflict) =>
       renderActionCell(
         conflict,
@@ -503,7 +753,7 @@ const buildColumns = (conflictSelections, onSelectionChange, onResolve, onIgnore
         loading,
         onSelectionChange,
         onResolve,
-        onIgnore
+        centerNodalOptions
       ),
   },
 ];
@@ -515,6 +765,8 @@ const DataImportConflictReport = ({
   onResolve,
   onIgnore,
   loading,
+  extraTabContent,
+  centerNodalOptions = [],
 }) => {
   if (!conflicts) {
     return <Text type="secondary">Click "Load Conflict" to see conflicts.</Text>;
@@ -536,6 +788,14 @@ const DataImportConflictReport = ({
     return acc;
   }, {});
 
+  if (extraTabContent) {
+    Object.keys(extraTabContent).forEach((key) => {
+      if (!groupedConflicts[key]) {
+        groupedConflicts[key] = [];
+      }
+    });
+  }
+
   return (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
       <Tabs
@@ -543,42 +803,48 @@ const DataImportConflictReport = ({
           key: groupLabel,
           label: `${groupLabel} (${items.length})`,
           children: (
-            <Collapse
-              size="small"
-              defaultActiveKey={Array.from(new Set(items.map((item) => item.meta.title))).slice(0, 1)}
-              items={Object.entries(
-                items.reduce((acc, conflict) => {
-                  const typeKey = conflict.meta.title;
-                  if (!acc[typeKey]) {
-                    acc[typeKey] = [];
-                  }
-                  acc[typeKey].push(conflict);
-                  return acc;
-                }, {})
-              ).map(([typeLabel, typeItems]) => ({
-                key: typeLabel,
-                label: `${typeLabel} (${typeItems.length})`,
-                children: (
-                  <Table
-                    columns={buildColumns(
-                      conflictSelections,
-                      onSelectionChange,
-                      onResolve,
-                      onIgnore,
-                      loading,
-                      typeItems[0]?.targetField
-                    )}
-                    dataSource={typeItems}
-                    rowKey="key"
-                    pagination={false}
-                    size="small"
-                    scroll={{ x: 1180 }}
-                    rowClassName={() => "compact-conflict-row"}
-                    style={{ width: "100%" }}
-                  />
-                ),
-              }))}
-            />
+            <div className="flex flex-col gap-4">
+              {extraTabContent && extraTabContent[groupLabel]}
+              {items.length > 0 && (
+                <Collapse
+                  size="small"
+                  activeKey={Array.from(new Set(items.map((item) => item.meta.title)))}
+                  items={Object.entries(
+                    items.reduce((acc, conflict) => {
+                      const typeKey = conflict.meta.title;
+                      if (!acc[typeKey]) {
+                        acc[typeKey] = [];
+                      }
+                      acc[typeKey].push(conflict);
+                      return acc;
+                    }, {})
+                  ).map(([typeLabel, typeItems]) => ({
+                    key: typeLabel,
+                    label: `${typeLabel} (${typeItems.length})`,
+                    children: (
+                      <Table
+                        loading={loading}
+                        columns={buildColumns(
+                          conflictSelections,
+                          onSelectionChange,
+                          onResolve,
+                          onIgnore,
+                          loading,
+                          centerNodalOptions
+                        )}
+                        dataSource={typeItems}
+                        rowKey="key"
+                        pagination={false}
+                        size="small"
+                        scroll={{ x: 1230 }}
+                        rowClassName={() => "compact-conflict-row"}
+                        style={{ width: "100%" }}
+                      />
+                    ),
+                  }))}
+                />
+              )}
+            </div>
           ),
         }))}
       />
